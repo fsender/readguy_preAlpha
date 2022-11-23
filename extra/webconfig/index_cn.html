@@ -1,0 +1,39 @@
+<!DOCTYPE html><html lang="zh-cn">
+<head><meta charset="utf-8"><title>readguy 设置</title></head>
+<body><h1>readguy 设置页面</h1>
+<p>点击<a href="/wifi">配置WiFi</a><br/>
+点击<a href="/api">配置聚合数据API密钥</a><br/></p>
+<p>系统信息<br/>芯片:flash id:flash 大小:</p>
+<form name="input" action="/verify" method="POST">
+WiFi 名称<input type='text' name='ssid' maxlength="31"/><br/>
+WiFi 密码<input type='text' name='psk' maxlength="31"/><br/>
+<h2>引脚定义设定</h2>
+<input type="checkbox" name="share" value="1">墨水屏和SD卡共享SPI<br/>
+E-paper 型号
+<select name="epdtype"><option value="0">GxEPD2_154</option>
+<option value="1">GxEPD2_154_D67</option>
+<option value="2">GxEPD2_213</option>
+<option value="3">GxEPD2_290</option></select><br/>
+E-paper MOSI<input type="number" name="epd_mosi" min="-1" max="100" step="1" value="-1"/><br/>
+E-paper SCLK<input type="number" name="epd_sclk" min="-1" max="100" step="1" value="-1"/><br/>
+E-paper CS<input type="number" name="epd_cs" min="-1" max="100" step="1" value="-1"/><br/>
+E-paper DC<input type="number" name="epd_dc" min="-1" max="100" step="1" value="-1"/><br/>
+E-paper RST<input type="number" name="epd_rst" min="-1" max="100" step="1" value="-1"/><br/>
+E-paper BUSY<input type="number" name="epd_busy" min="-1" max="100" step="1" value="-1"/><br/>
+SD card MISO<input type="number" name="sd_miso" min="-1" max="100" step="1" value="-1"/><br/>
+SD card MOSI<input type="number" name="sd_mosi" min="-1" max="100" step="1" value="-1"/><br/>
+SD card SCLK<input type="number" name="sd_sclk" min="-1" max="100" step="1" value="-1"/><br/>
+SD card CS<input type="number" name="sd_cs" min="-1" max="100" step="1" value="-1"/><br/>
+几个按键?<br/><input type="number" name="btn_count" min="1" max="3" step="1" value="1"/><br/>
+按键 1 引脚<input type="number" name="btn1" min="-1" max="100" step="1" value="-1"/><br/>
+<input type="checkbox" name="btn1c" value="1">高电平触发<br/>
+按键 2 引脚<input type="number" name="btn2" min="-1" max="100" step="1" value="-1"/><br/>
+<input type="checkbox" name="btn2c" value="1">高电平触发<br/>
+按键 3 引脚<input type="number" name="btn3" min="-1" max="100" step="1" value="-1"/><br/>
+<input type="checkbox" name="btn3c" value="1">高电平触发<br/>
+背光 PWM 引脚<input type="number" name="bl" min="-1" max="100" step="1" value="-1"/><br/>
+<input type='submit' value='确定!'/><br/>
+</form>
+<br/><p>Copyright (C) FriendshipEnder <a href="https://github.com/fsender/readguy">GitHub</a>
+  <a href="https://space.bilibili.com/180327370/">Bilibili</a></p>
+</body></html>
