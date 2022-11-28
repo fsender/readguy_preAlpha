@@ -1,8 +1,11 @@
 #include "guy_driver.h"
 
-//static const char *s_html;
+//static const char *index_cn_html;
 //static const uint8_t faviconData[1150];
 
+//x==63 -> *
+//x==62 -> _
+#define R2CHAR(x) (((x)==63)?42:(((x)==62)?95:(((x)>=36)?((x)+61):(((x)>=10)?((x)+55):((x)+48)))))
 void readguy::ap_setup(){
   //初始化WiFi AP模式, 用于将来的连接WiFi
   Serial.println(F("ap_setup fx"));
@@ -17,11 +20,11 @@ void readguy::ap_setup(){
 void readguy::server_setup(){
   //启动WiFi服务器端, 这样就可以进行配网工作
   httpUpdater.setup(&sv);
-  sv.on("/", HTTP_GET, [&](){handleInit();});
-  sv.on("/verify", HTTP_POST, [&](){handleInitPost();}); //此时已经完成了引脚初始化
-//sv.on("/final", HTTP_GET, [&](){handleFinal();});
-  sv.on("/final", HTTP_POST, [&](){handleFinalPost();}); //此时验证已经正确
-  sv.on("/wifi", HTTP_POST, [&](){handleWiFiPost();}); //此时验证已经正确
+  sv.on("/",         HTTP_GET,  [&](){handleInit();     });
+  sv.on("/verify",   HTTP_POST, [&](){handleInitPost(); }); //此时已经完成了引脚初始化
+  sv.on("/pinsetup", HTTP_GET,  [&](){handlePinSetup(); });
+  sv.on("/final",    HTTP_POST, [&](){handleFinalPost();}); //此时验证已经正确
+  sv.on("/wifi",     HTTP_POST, [&](){handleWiFiPost(); }); //此时验证已经正确
   FSBrowser_setup();    //set-up for fs-browser. 第三方库内容, 初始化后即可使用
   sv.on("/favicon.ico", HTTP_GET, [&](){
     sv.client().write_P(PSTR("HTTP/1.1 200 OK\r\n"
@@ -40,19 +43,17 @@ void readguy::server_setup(){
 }
 bool readguy::server_loop(){
   sv.handleClient();
-  return (cali==2);
+  return (READGUY_cali==2);
 }
 void readguy::handleInit(){
-  if(!cali)
-    sv.send(200, header_html, s_html);
-  else
-    handleFinal();
+  if(READGUY_cali!=2) sv.send(200, header_html, "<meta http-equiv=\"refresh\" content=\"0;url=/pinsetup\">");
+  else handleFinal();
 }
 void readguy::handleInitPost(){
   Serial.println(F("handleInitPost fx"));
   // 在此初始化你的数字引脚信息了, 之后就可以尝试初始化了.
   // 此时返回一个文本输入框, 定位到 handleFinalPost 函数
-  char config_data[18];
+  //char config_data[18];
   //仅供测试
   const PROGMEM char *args_name[21]={
     "share","epdtype","epd_mosi","epd_sclk",
@@ -85,70 +86,85 @@ void readguy::handleInitPost(){
       if(i==0) config_data[1] = 0; //有的html响应是没有的
     }
   }
-  sv.send(200, header_html, v_html);
+  sv.send(200, header_html, verify_html);
   if(btn_count_<2) config_data[14]=0;
   if(btn_count_<3) config_data[15]=0;
   Serial.println(F("Parse OK. Now try to init devices."));
   //发送数据已经录入的网页, 下次点击这个submit按键即将跳转到 handleFinalPost
   //此时显示一个随机字符串, 然后显示出来, 最后验证屏幕驱动状态
   uint32_t rdm = esp_random(); ///生成随机字符串
-  randomch[0] = ((rdm>>21)&0x3f)+48;
-  if(randomch[0]>90)randomch[0]+=6;
-  randomch[1] = ((rdm>>14)&0x3f)+48;
-  if(randomch[1]>90)randomch[1]+=6;
-  randomch[2] = ((rdm>> 7)&0x3f)+48;
-  if(randomch[2]>90)randomch[2]+=6;
-  randomch[3] = ((rdm    )&0x3f)+48;
-  if(randomch[3]>90)randomch[3]+=6;
+  randomch[0] = R2CHAR((rdm>>18)&0x3f);
+  randomch[1] = R2CHAR((rdm>>12)&0x3f);
+  randomch[2] = R2CHAR((rdm>> 6)&0x3f);
+  randomch[3] = R2CHAR((rdm    )&0x3f);
   Serial.print(F("rand string: "));
   for(int i=0;i<4;i++) Serial.write(randomch[i]);
   Serial.write('\n');
   //尝试初始化各个硬件, 可能失败, 然后显示一些东西
-  cali=config_data[0]; //未校准时, 此处为0, 启动时会自动开启配网模式进行初始化
-  sd_share_spi = config_data[1]; // 为 true 时, sd卡与epd共享spi
-  epd_driver_type=config_data[2]; // 对应的epd驱动程序代号
-  //显示驱动部分, 显示默认使用vspi (vspi也是默认SPI库的通道)
-  epd_mosi=config_data[3]; // 目标显示器的 MOSI 引脚
-  epd_sclk=config_data[4]; // 目标显示器的 SCLK 引脚
-  epd_cs  =config_data[5]; // 目标显示器的 CS   引脚
-  epd_dc  =config_data[6]; // 目标显示器的 DC   引脚
-  epd_rst =config_data[7]; // 目标显示器的 RST  引脚
-  epd_busy=config_data[8]; // 目标显示器的 BUSY 引脚
-  //sd卡驱动部分, 默认使用hspi (sd卡建议用hspi)
-  if(sd_share_spi){
+  if(READGUY_shareSpi){
     config_data[10] = config_data[3];
     config_data[11] = config_data[4];
   }
-  sd_miso=config_data[9];  // 目标sd卡的 MISO 引脚, sd_share_spi == 1 时无效
-  sd_mosi=config_data[10]; // 目标sd卡的 MOSI 引脚, sd_share_spi == 1 时无效
-  sd_sclk=config_data[11]; // 目标sd卡的 SCLK 引脚, sd_share_spi == 1 时无效
-  sd_cs  =config_data[12]; // 目标sd卡的 CS   引脚
-  //按键驱动部分, 为负代表高触发, 否则低触发,
-  //注意, 这里的io编号是加1的, 即 1或-1 代表 gpio0 的低触发/高触发
-  btn1     =config_data[13]; 
-  btn2     =config_data[14]; 
-  btn3     =config_data[15]; 
-  bl_pin   =config_data[16];  //前置光接口引脚IO
-  rtc_type =config_data[17];  //使用的RTC型号(待定, 还没用上)
-  Serial.println(F("Pin configured. Writing to NVS..."));
-  nvsData.putBytes("hwconfig",config_data,18);
   //此时引脚io数据已经录入, 如果没有问题, 此处屏幕应当可以显示
   Serial.println(F("Init EPD..."));
   setEpdDriver(); //尝试初始化屏幕
   Serial.println(F("Init details..."));
-  if(!setMoreDriver()) //尝试初始化按键, 调用后, 若成功, sd_ok的值会变成1
-  Serial.println(F("SD failed!"));
-  g()->drawChar(10,10,randomch[0],0,0xffff,2);
-  g()->drawChar(22,10,randomch[1],0,0xffff,2);
-  g()->drawChar(34,10,randomch[2],0,0xffff,2);
-  g()->drawChar(46,10,randomch[3],0,0xffff,2);
+  if(!setMoreDriver()){ //尝试初始化按键, 调用后, 若成功, sd_ok的值会变成1
+    int16_t tbx=0,tby=0;
+    uint16_t tbw=0,tbh=0;
+    Serial.println(F("SD failed!"));
+    // Adafruit_GFX不提供 drawCentreString 函数, 因此将会使用复杂的方式重新绘制
+    gfx->getTextBounds("SD Init failed!", 0, 0, &tbx, &tby, &tbw, &tbh);
+    // center bounding box by transposition of origin:
+    uint16_t x = ((gfx->width() - tbw) / 2) - tbx;
+    uint16_t y = ((gfx->height() - tbh) / 2) - tby;
+    gfx->setCursor(x, y+24);
+    gfx->print("SD Init failed!");
+  } //字体尺寸为20x28, 建议字符间距32像素
+  gfx->drawChar((gfx->width()>>1)-58,(gfx->height()>>1)-14,randomch[0],false,true,4);
+  gfx->drawChar((gfx->width()>>1)-26,(gfx->height()>>1)-14,randomch[1],false,true,4);
+  gfx->drawChar((gfx->width()>>1)+ 6,(gfx->height()>>1)-14,randomch[2],false,true,4);
+  gfx->drawChar((gfx->width()>>1)+38,(gfx->height()>>1)-14,randomch[3],false,true,4);
   display();
-  Serial.println(F("displayed string."));
 }
-//void readguy::handleFinal(){}
+void readguy::handlePinSetup(){
+  //JS技术不行见谅, 哈哈, 直接, 把网页文件切片
+  String s  = index_cn_html; //s时最终的网页HTML, 存储到字符串内.
+  //s += (READGUY_cali?(int)epd_driver_type:-1); //epd型号
+  for(size_t i=0;i<EPD_DRIVERS_NUM;i++){
+    s += "<option value=\"";
+    s += (int)i;
+    s += '\"';
+    if(READGUY_cali && READGUY_epd_type == i) s += " selected";
+    s += '>';
+    s += epd_drivers_list[i];
+    s += "</option>";
+  }
+  //s += "<option value=\"3\">GxEPD2_290</option>";
+  s += index_cn_html1;  s += (READGUY_cali?(int)READGUY_epd_mosi :-1);
+  s += index_cn_html2;  s += (READGUY_cali?(int)READGUY_epd_sclk :-1);
+  s += index_cn_html3;  s += (READGUY_cali?(int)READGUY_epd_cs   :-1);
+  s += index_cn_html4;  s += (READGUY_cali?(int)READGUY_epd_dc   :-1);
+  s += index_cn_html5;  s += (READGUY_cali?(int)READGUY_epd_rst  :-1);
+  s += index_cn_html6;  s += (READGUY_cali?(int)READGUY_epd_busy :-1);
+  s += index_cn_html7;  s += (READGUY_cali?(int)READGUY_sd_miso  :-1);
+  s += index_cn_html8;  s += (READGUY_cali?(int)READGUY_sd_mosi  :-1);
+  s += index_cn_html9;  s += (READGUY_cali?(int)READGUY_sd_sclk  :-1);
+  s += index_cn_html10; s += (READGUY_cali?(int)READGUY_sd_cs    :-1);
+  s += index_cn_html11;
+  if(!(READGUY_cali && READGUY_btn2)) s += 1;
+  else            if(!(READGUY_btn3)) s += 2;
+  else                                s += 3;
+  s += index_cn_html12; s += ((READGUY_cali && READGUY_btn1)?(int)abs(READGUY_btn1)-1:-1);
+  s += index_cn_html13; s += ((READGUY_cali && READGUY_btn2)?(int)abs(READGUY_btn2)-1:-1);
+  s += index_cn_html14; s += ((READGUY_cali && READGUY_btn3)?(int)abs(READGUY_btn3)-1:-1);
+  s += index_cn_html15; s += (READGUY_cali?(int)READGUY_bl_pin :-1);
+  s += index_cn_html16; //s += (READGUY_cali?(int)0        :-1);
+  sv.send(200, header_html, s);
+}
 void readguy::handleFinal(){
-  Serial.print(F("handleFinal fx."));
-  String s = f_html;
+  Serial.println(F("handleFinal fx."));
+  String s = final_html;
   if(!sd_ok) s+=F("SD卡不可用!!!<br/>");
   else{
     auto cardType = SD.cardType();
@@ -159,8 +175,6 @@ void readguy::handleFinal(){
     else s+=F("UNKNOWN");
     s+=F(", SD card size: ");
     s+=(uint32_t)(SD.cardSize()/1024);
-    s+=F("KB, used: ");
-    s+=(uint32_t)(SD.usedBytes()/1024);
     s+=F("KB.<br/>");
   }
   s+=F("当前WiFi模式: ");
@@ -186,12 +200,19 @@ void readguy::handleFinal(){
   s+=F("<br/>ESP-IDF版本: ");
   s+=esp_get_idf_version();
   s+=F("编译日期: "); s+=__DATE__; s+=' '; s+=__TIME__;
-  s+=f_html2;
+  s+=final2_html;
   sv.send(200, header_html, s);
-  cali = 2;
+  if(READGUY_cali == 1){
+    Serial.println(F("Data saved to NVS."));
+    READGUY_cali = 2;
+    nvsData.begin(projname);
+    nvsData.remove(tagname);
+    nvsData.putBytes(tagname,config_data,sizeof(config_data)); //正式写入NVS
+    nvsData.end();
+  }
 }
 void readguy::handleFinalPost(){
-  Serial.print(F("handleFinalPost fx."));
+  Serial.println(F("handleFinalPost fx."));
   //此时硬件初始化完毕了, 然后网页表单也填写完了, 就等此时验证
   if(sv.hasArg("t_verify")){ //验证字符  
     String s = sv.arg("t_verify");
@@ -208,81 +229,96 @@ void readguy::FSBrowser_setup(){} //初始化文件系统
 void readguy::handleWiFiPost(){} //设置WiFi和聚合天气
 
 
-const PROGMEM char *readguy::header_html = "text/html";
-const PROGMEM char *readguy::s_html =R"EOF(
-<!DOCTYPE html><html lang="zh-cn">
-<head><meta charset="utf-8"><title>readguy 设置</title></head>
-<body><h1>readguy 设置页面</h1>
-<p>点击<a href="/wifi">配置WiFi</a><br/>
-点击<a href="/api">配置聚合数据API密钥</a><br/></p>
-<p>系统信息<br/>芯片:flash id:flash 大小:</p>
-<form name="input" action="/verify" method="POST">
-WiFi 名称<input type='text' name='ssid' maxlength="31"/><br/>
-WiFi 密码<input type='text' name='psk' maxlength="31"/><br/>
-<h2>引脚定义设定</h2>
-<input type="checkbox" name="share" value="1">墨水屏和SD卡共享SPI<br/>
-E-paper 型号
-<select name="epdtype"><option value="0">GxEPD2_154</option>
-<option value="1">GxEPD2_154_D67</option>
-<option value="2">GxEPD2_213</option>
-<option value="3">GxEPD2_290</option></select><br/>
-E-paper MOSI<input type="number" name="epd_mosi" min="-1" max="100" step="1" value="-1"/><br/>
-E-paper SCLK<input type="number" name="epd_sclk" min="-1" max="100" step="1" value="-1"/><br/>
-E-paper CS<input type="number" name="epd_cs" min="-1" max="100" step="1" value="-1"/><br/>
-E-paper DC<input type="number" name="epd_dc" min="-1" max="100" step="1" value="-1"/><br/>
-E-paper RST<input type="number" name="epd_rst" min="-1" max="100" step="1" value="-1"/><br/>
-E-paper BUSY<input type="number" name="epd_busy" min="-1" max="100" step="1" value="-1"/><br/>
-SD card MISO<input type="number" name="sd_miso" min="-1" max="100" step="1" value="-1"/><br/>
-SD card MOSI<input type="number" name="sd_mosi" min="-1" max="100" step="1" value="-1"/><br/>
-SD card SCLK<input type="number" name="sd_sclk" min="-1" max="100" step="1" value="-1"/><br/>
-SD card CS<input type="number" name="sd_cs" min="-1" max="100" step="1" value="-1"/><br/>
-几个按键?<br/><input type="number" name="btn_count" min="1" max="3" step="1" value="1"/><br/>
-按键 1 引脚<input type="number" name="btn1" min="-1" max="100" step="1" value="-1"/><br/>
-<input type="checkbox" name="btn1c" value="1">高电平触发<br/>
-按键 2 引脚<input type="number" name="btn2" min="-1" max="100" step="1" value="-1"/><br/>
-<input type="checkbox" name="btn2c" value="1">高电平触发<br/>
-按键 3 引脚<input type="number" name="btn3" min="-1" max="100" step="1" value="-1"/><br/>
-<input type="checkbox" name="btn3c" value="1">高电平触发<br/>
-背光 PWM 引脚<input type="number" name="bl" min="-1" max="100" step="1" value="-1"/><br/>
-<input type='submit' value='确定!'/><br/>
-</form>
-<br/><p>Copyright (C) FriendshipEnder <a href="https://github.com/fsender/readguy">GitHub</a>
-  <a href="https://space.bilibili.com/180327370/">Bilibili</a></p>
-</body></html>
-)EOF";
+const PROGMEM char *readguy::epd_drivers_list[EPD_DRIVERS_NUM]={
+  "GxEPD2_154","GxEPD2_154_D67","GxEPD2_154_T8","GxEPD2_154_M09",
+  "GxEPD2_213","GxEPD2_213_B72","GxEPD2_213_B73","GxEPD2_213_B74",
+  "GxEPD2_213_flex","GxEPD2_213_M21","GxEPD2_213_T5D","GxEPD2_260",
+  "GxEPD2_260_M01","GxEPD2_266_BN","GxEPD2_270","GxEPD2_270_T91",
+  "GxEPD2_290","GxEPD2_290_T5","GxEPD2_290_T5D","GxEPD2_290_T94",
+  "GxEPD2_290_M06","GxEPD2_420","GxEPD2_420_M01"
+};
+const PROGMEM char readguy::header_html[] = "text/html";
+//JS技术不行见谅
+const PROGMEM char readguy::index_cn_html[] = // then write epd_mosi pin
+"<!DOCTYPE html><html lang=\"zh-cn\"><head><meta charset=\"utf-8\"><title>readguy 设"
+"置</title></head><body><h1>readguy 设置页面</h1><p>点击<a href=\"/wifi\""
+">配置WiFi</a><br/>点击<a href=\"/api\">配置聚合数据API密钥</a><br/></"
+"p><p>系统信息<br/>芯片:flash id:flash 大小:</p><form name=\"input\" act"
+"ion=\"/verify\" method=\"POST\">WiFi 名称<input type=\'text\' name=\'ssid\' maxlength"
+"=\"31\"/><br/>WiFi 密码<input type=\'text\' name=\'psk\' maxlength=\"31\"/><br/><h2"
+">引脚定义设定</h2><input type=\"checkbox\" name=\"share\" value=\"1\">墨水屏"
+"和SD卡共享SPI<br/>E-paper 型号<select name=\"epdtype\">";
 
-const PROGMEM char *readguy::v_html =R"EOF(
-<!DOCTYPE html><html lang="zh-cn">
-<head><meta charset="utf-8"><title>readguy 初始化</title></head>
-<body><h1>readguy 验证页面,马上就好</h1>
-<p>屏幕即将显示.<br/>请在显示完成后依次按下所有按键进行测试,确保按键可正常工作<br/>
-按键按下时, 屏幕将会在对应地方显示为黑色, 松开为白色<br/>
-请输入屏幕上显示的内容<br/>如果屏幕或者按键无响应请返回到<a href="/">设置页面</a><br/></p>
-<form action="/final" method="POST">
-<input type='text' name='t_verify' maxlength="6"/><br/>
-<input type='submit' value='确定!'/><br/></form>
-<br/><p>Copyright (C) FriendshipEnder</p></body></html>
-)EOF";
+/* "<option value=\"0\">GxEPD2_154</option>"
+"<option value=\"1\">GxEPD2_154_D67</option>"
+"<option value=\"2\">GxEPD2_213</option>"
+"<option value=\"3\">GxEPD2_290</option>"; */ //这里写所有选项代码
+const PROGMEM char readguy::index_cn_html1[] =// then write epd type
+"</select><br/>E-paper MOSI<input type=\"number\" name=\"epd_mosi\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html2[] =// then write epd_sclk pin
+"\"/><br/>E-paper SCLK<input type=\"number\" name=\"epd_sclk\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html3[] =// then write epd_cs pin
+"\"/><br/>E-paper CS<input type=\"number\" name=\"epd_cs\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html4[] =// then write epd_dc pin
+"\"/><br/>E-paper DC<input type=\"number\" name=\"epd_dc\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html5[] =// then write epd_rst pin
+"\"/><br/>E-paper RST<input type=\"number\" name=\"epd_rst\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html6[] =// then write epd_busy pin
+"\"/><br/>E-paper BUSY<input type=\"number\" name=\"epd_busy\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html7[] =// then write sd_miso pin
+"\"/><br/>SD card MISO<input type=\"number\" name=\"sd_miso\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html8[] =// then write sd_mosi pin
+"\"/><br/>SD card MOSI<input type=\"number\" name=\"sd_mosi\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html9[] =// then write sd_sclk pin
+"\"/><br/>SD card SCLK<input type=\"number\" name=\"sd_sclk\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html10[] =// then write sd_cs pin
+"\"/><br/>SD card CS<input type=\"number\" name=\"sd_cs\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html11[] =// then write btn_count (1-3)
+"\"/><br/>几个按键\?<br/><input type=\"number\" name=\"btn_count\" min=\"1\" max=\"3\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html12[] =// then write btn1 pin
+"\"/><br/>按键 1 引脚<input type=\"number\" name=\"btn1\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html13[] =// then write btn2 pin
+"\"/><br/><input type=\"checkbox\" name=\"btn1c\" value=\"1\">高电平触发<br/>按键 2 引脚<i"
+"nput type=\"number\" name=\"btn2\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html14[] =// then write btn3 pin
+"\"/><br/><input type=\"checkbox\" name=\"btn2c\" value=\"1\">高电平触发<br/>按键 3 引脚<"
+"input type=\"number\" name=\"btn3\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html15[] =// then write bl (backlight) pin
+"\"/><br/><input type=\"checkbox\" name=\"btn3c\" value=\"1\">高电平触发<br/>背光 PWM 引脚"
+"<input type=\"number\" name=\"bl\" min=\"-1\" max=\"100\" step=\"1\" value=\"";
+const PROGMEM char readguy::index_cn_html16[] =// then write RTC type
+"\"/><br/><input type=\'submit\' value=\'确定!\'/><br/></form><br/><p>Copyright (C) Friendsh"
+"ipEnder <a href=\"https://github.com/fsender/readguy\">GitHub</a>  <a href=\"https"
+"://space.bilibili.com/180327370/\">Bilibili</a></p></body></html>";
 
-const PROGMEM char *readguy::f_html =R"EOF(
-<!DOCTYPE html><html lang="zh-cn">
-<head><meta charset="utf-8"><title>欢迎使用 readguy</title></head>
-<body><h1>readguy 欢迎页面</h1>
-<p>您已完成了初始化工作.现在可以配置WiFi和聚合密钥相关内容.<br/></p>
-返回<a href="/">设置页面</a><br/>
-前往<a href="/edit">SD卡文件管理器页面</a><br/>
-)EOF";
-const PROGMEM char *readguy::f_html2 =R"EOF(
-<form action="/wifi" method="POST">
-WiFi 名称<input type='text' name='ssid' maxlength="31"/><br/>
-WiFi 密码<input type='text' name='psk' maxlength="31"/><br/>
-天气所在地<input type='text' name='ssid' maxlength="31"/><br/>
-聚合数据API密钥<input type='text' name='psk' maxlength="63"/><br/>
-</form>
-<br/><p>Copyright (C) FriendshipEnder <a href="https://github.com/fsender/readguy">GitHub</a>
-  <a href="https://space.bilibili.com/180327370/">Bilibili</a></p>
-</body></html>
-)EOF";
+
+const PROGMEM char readguy::verify_html[] =
+"<!DOCTYPE html><html lang=\"zh-cn\"><head><meta charset=\"utf-8\"><title>readguy 初"
+"始化</title></head><body><h1>readguy 验证页面,马上就好</h1><p>屏幕"
+"即将显示.<br/>请在显示完成后依次按下所有按键进行测试,确"
+"保按键可正常工作<br/>按键按下时, 屏幕将会在对应地方显示"
+"为黑色, 松开为白色<br/>请输入屏幕上显示的内容<br/>如果屏"
+"幕或者按键无响应请返回到<a href=\"/\">设置页面</a><br/></p><form "
+"action=\"/final\" method=\"POST\"><input type=\'text\' name=\'t_verify\' maxlength=\"6\"/"
+"><br/><input type=\'submit\' value=\'确定!\'/><br/></form><br/><p>Copyright ("
+"C) FriendshipEnder <a href=\"https://github.com/fsender/readguy\">GitHub</a> <a "
+"href=\"https://space.bilibili.com/180327370/\">Bilibili</a></p></body></html>";
+
+const PROGMEM char readguy::final_html[] =
+"<!DOCTYPE html><html lang=\"zh-cn\"><head><meta charset=\"utf-8\"><title>欢迎使"
+"用 readguy</title></head><body><h1>readguy 欢迎页面</h1><p>您已完成了"
+"初始化工作.现在可以配置WiFi和聚合密钥相关内容.<br/></p>返回"
+"<a href=\"/pinsetup\">设置页面</a><br/>前往<a href=\"/edit\">SD卡文件管理器页面"
+"</a><br/>";
+
+const PROGMEM char readguy::final2_html[] =
+"<form action=\"/wifi\" method=\"POST\">WiFi 名称<input type=\'text\' n"
+"ame=\'ssid\' maxlength=\"31\"/><br/>WiFi 密码<input type=\'text\' name=\'psk\' maxlen"
+"gth=\"31\"/><br/>天气所在地<input type=\'text\' name=\'ssid\' maxlength=\"31\"/><b"
+"r/>聚合数据API密钥<input type=\'text\' name=\'psk\' maxlength=\"63\"/><br/></"
+"form><br/><p>Copyright (C) FriendshipEnder <a href=\"https://github.com/fsender/"
+"readguy\">GitHub</a> <a href=\"https://space.bilibili.com/180327370/\">Bilibili</"
+"a></p></body></html>";
 const PROGMEM uint8_t readguy::faviconData[1150]={
   0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10, 0x00, 0x00, 0x01, 0x00, 0x20, 0x00, 0x68, 0x04, 
   0x00, 0x00, 0x16, 0x00, 0x00, 0x00, 0x28, 0x00, 0x00, 0x00, 0x10, 0x00, 0x00, 0x00, 0x20, 0x00, 

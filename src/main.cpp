@@ -30,7 +30,7 @@ void setup()
 {
   Serial.begin(115200);
   Serial.println("setup");
-  xTaskCreate(press2reset_f,"press2reset",1024,nullptr,1,&press2reset_h);
+  //xTaskCreate(press2reset_f,"press2reset",1024,nullptr,1,&press2reset_h);
   delay(1000);
   pinMode(32,INPUT);
   g.init();
@@ -44,11 +44,22 @@ void setup()
   helloWorld(10,90);
   g.g()->fillScreen(GxEPD_WHITE);
   helloWorld(10,140);
-  g.g()->fillScreen(GxEPD_WHITE);
+  g.g()->drawChar(10,40,'a',true,false,2);
   helloWorld(10,160);
+  helloWorld(10,10);
+  g.display(0); //全刷显示
+  helloWorld(10,30);
+  g.display(0); //全刷显示
+  helloWorld(10,50);
+  g.display(); //全刷显示
+  helloWorld(10,70);
+  g.display(); //全刷显示
   Serial.println("Reading touch sensor...");
+  g.ap_setup();
+  g.server_setup();
 }
 void loop(){
-  Serial.print(digitalRead(32));
-  delay(100);
+  for(;;){
+    g.server_loop();
+  }
 }
